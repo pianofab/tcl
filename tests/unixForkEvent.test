@@ -1,0 +1,55 @@
+# This file contains a collection of tests for the procedures in the file
+# tclUnixNotify.c.  Sourcing this file into Tcl runs the tests and
+# generates output for errors.  No output means no errors were found.
+#
+# Copyright (c) 1995-1997 Sun Microsystems, Inc.
+# Copyright (c) 1998-1999 by Scriptics Corporation.
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+package require tcltest 2
+namespace import -force ::tcltest::*
+
+testConstraint testfork [llength [info commands testfork]]
+
+# Test if the notifier thread is well initialized in a forked interpreter.
+test unixforkevent-1.1 {fork and test writeable event} \
+    -constraints testfork \
+    -body {
+	set myFolder [makeDirectory unixtestfork]
+	set pid [testfork]
+	if {$pid == 0} {
+	    # we are the forked process
+	    set result initialized
+	    set h [open [file join $myFolder test.txt] w]
+	    # create a file event and a timeout which fires after 1 second
+	    # if the file event did not fire
+	    fileevent $h writable\
+		    "set result writable;\
+		    after cancel [after 1000 {set result timeout}]"
+	    vwait result
+	    close $h
+	    # write result file
+	    makeFile $result result.txt $myFolder
+	    # write trigger file, that result file is fully written
+	    makeFile "" trigger.txt $myFolder
+	    exit
+	}
+	# we are the original process
+	# look over 1.5 seconds for the file creation by the forked process
+	for {set myTries 0} {$myTries < 15} {incr myTries} {
+	    if {[file readable [file join $myFolder trigger.txt]]} {
+		return [viewFile result.txt $myFolder]
+	    }
+	    after 100
+	}
+	return "forked process stalled"
+    } \
+    -result {writable} \
+    -cleanup { 
+	catch { removeFolder $myFolder }
+    }
+
+::tcltest::cleanupTests
+return
